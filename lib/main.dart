@@ -1,10 +1,24 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:foqquscashless/utils/keys.dart';
+import 'package:foqquscashless/services/manilla_service.dart';
+import 'package:foqquscashless/models/cashless/manilla_model.dart';
 
+const bool isProduction = false;
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(
+      apiKey: isProduction ? Keys.prodApiKey : Keys.devApiKey,
+      appId: isProduction ? Keys.prodAppId : Keys.devAppId,
+      messagingSenderId:
+          isProduction ? Keys.prodMessagingSenderId : Keys.devMessagingSenderId,
+      projectId: isProduction ? Keys.prodProjectId : Keys.devProjectId,
+    ),
+  );
   runApp(const MyApp());
 }
 
@@ -36,6 +50,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   String _lastAction = '';
   String _lastTimestamp = '';
   bool _isChannelReady = false;
+  final ManillaService _manillaService = ManillaService();
 
   @override
   void initState() {
@@ -46,7 +61,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   Future<void> _initializeChannel() async {
     try {
-      await Future.delayed(const Duration(milliseconds: 500)); // Dar tiempo a que la plataforma se inicialice
+      await Future.delayed(const Duration(
+          milliseconds: 500)); // Dar tiempo a que la plataforma se inicialice
       _setupMethodChannel();
       setState(() {
         _isChannelReady = true;
@@ -62,9 +78,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     platform.setMethodCallHandler((call) async {
       debugPrint('Método recibido: ${call.method}');
       debugPrint('Argumentos recibidos: ${call.arguments}');
-      
+
       if (call.method == 'handleIntent') {
-        final Map<String, dynamic> data = Map<String, dynamic>.from(call.arguments);
+        final Map<String, dynamic> data =
+            Map<String, dynamic>.from(call.arguments);
         _handleIntentData(data);
       }
       return null;
@@ -81,7 +98,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       debugPrint('Procesando intent inicial...');
       final result = await platform.invokeMethod('getInitialIntent');
       debugPrint('Resultado del intent inicial: $result');
-      
+
       if (result != null) {
         _handleIntentData(Map<String, dynamic>.from(result));
       }
@@ -97,7 +114,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   void _handleIntentData(Map<String, dynamic> data) {
     final accion = data['accion'] as String?;
     final timestamp = data['timestamp'] as String?;
-    
+
     setState(() {
       _lastAction = accion ?? '';
       _lastTimestamp = timestamp ?? '';
@@ -110,7 +127,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   void _showMessage(String message) {
     if (!mounted) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -181,9 +198,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                   Text(
                     _lastAction,
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: Colors.blue.shade900,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: Colors.blue.shade900,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -203,7 +220,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue.shade700,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -214,6 +232,33 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     'Esperando acciones...',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
+                ElevatedButton(
+                  onPressed: () async {
+                    Manilla newManilla = Manilla(
+                      cashlessId: '1234567890',
+                      clientId: 'exampleClientId',
+                      status: false,
+                      token: 'exampleToken',
+                    );
+                    bool success =
+                        await _manillaService.createManilla(newManilla);
+                    if (success) {
+                      _showMessage('Manilla creada exitosamente');
+                    } else {
+                      _showMessage('Error al crear la manilla');
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Crear manilla'),
+                ),
               ],
             ),
           ),
@@ -222,4 +267,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
   }
 }
+
+// Crear una carpeta de servicios para consultas a Firebase
+// Crear un modelo de ejemplo
 
