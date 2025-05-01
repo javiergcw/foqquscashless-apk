@@ -1,56 +1,22 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
-import 'package:firebase_core/firebase_core.dart';
-
-import 'package:foqquscashless/utils/keys.dart';
+import 'package:foqquscashless/functions/service_invoked_method.dart';
+import 'package:foqquscashless/widgets/data_display_widget.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 
-const bool isProduction = false;
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: const FirebaseOptions(
-      apiKey: isProduction ? Keys.prodApiKey : Keys.devApiKey,
-      appId: isProduction ? Keys.prodAppId : Keys.devAppId,
-      messagingSenderId:
-          isProduction ? Keys.prodMessagingSenderId : Keys.devMessagingSenderId,
-      projectId: isProduction ? Keys.prodProjectId : Keys.devProjectId,
-    ),
-  );
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Foqqus Cashless',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
-      home: const NFCScreen(),
-    );
-  }
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class NFCScreen extends StatefulWidget {
-  const NFCScreen({super.key});
-
-  @override
-  State<NFCScreen> createState() => _NFCScreenState();
-}
-
-class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  final ServiceInvokedMethod _serviceInvokedMethod = ServiceInvokedMethod();
   final MethodChannel _platform =
       const MethodChannel('com.example.foqquscashless/app');
   String? sessionId;
-  String? clientId;
   String? nfcData;
   String? accion;
   String? timestamp;
@@ -58,16 +24,26 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
   bool _isChannelReady = false;
   final bool _useRealNFC = false; // Cambiar a true para usar NFC real
 
+  String _lastAction = '';
+  String _lastTimestamp = '';
+  String? _cashlessId;
+  String? _cuentaId;
+  String? _mesaId;
+  Map<String, dynamic>? _datUpdate;
+  String? _comandaId;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _serviceInvokedMethod.initializeChannel();
     _initializeChannel();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _serviceInvokedMethod.initializeChannel();
       _initializeChannel();
     }
   }
@@ -130,21 +106,16 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
   Future<void> _handleIntentData(Map<String, dynamic> data) async {
     print('Datos recibidos en _handleIntentData: $data');
 
-    // Verificar si los datos vienen dentro de un objeto 'data'
-    final dynamic rawData = data['data'];
-    if (rawData == null) {
+    final Map<String, dynamic>? responseData =
+        data['data'] as Map<String, dynamic>?;
+    if (responseData == null) {
       print('No se encontró el objeto data en la respuesta');
       return;
     }
 
-    // Convertir el mapa de manera segura
-    final Map<String, dynamic> responseData =
-        Map<String, dynamic>.from(rawData);
-
     final accion = responseData['accion'] as String? ?? '';
     final timestamp = responseData['timestamp'] as String? ?? '';
     final sessionId = responseData['sessionId'] as String? ?? '';
-    final clientId = responseData['clientId'] as String? ?? '';
 
     print(
         'Parámetros procesados - accion: $accion, timestamp: $timestamp, sessionId: $sessionId');
@@ -153,7 +124,8 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
       this.accion = accion;
       this.timestamp = timestamp;
       this.sessionId = sessionId;
-      this.clientId = clientId;
+      _lastAction = accion;
+      _lastTimestamp = timestamp;
     });
 
     print('Datos actualizados en el estado');
@@ -188,10 +160,8 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
           },
         );
       } else {
-        // Simular datos NFC
-        await Future.delayed(
-            const Duration(seconds: 2)); // Simular tiempo de lectura
-        const simulatedData = 'CASH1234'; // Datos simulados
+        await Future.delayed(const Duration(seconds: 2));
+        const simulatedData = 'CASH1234';
         await _processNFCData(simulatedData);
       }
     } catch (e) {
@@ -216,10 +186,8 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
     try {
       final firestore = FirebaseFirestore.instance;
 
-      // Crear un documento en la colección nfcReader con el sessionId como ID
       await firestore.collection('nfcReader').doc(sessionId).set({
         'nfcData': isError ? null : data,
-        'cuentaId': "CUENTA1234",
         'timestamp': FieldValue.serverTimestamp(),
         'status': isError ? 'failed' : 'completed'
       });
@@ -229,30 +197,6 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al guardar datos en Firestore: $e')),
       );
-    }
-  }
-
-  Future<void> _simulateError() async {
-    if (sessionId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se encontró sessionId')),
-      );
-      return;
-    }
-
-    setState(() => isReading = true);
-
-    try {
-      await Future.delayed(
-          const Duration(seconds: 2)); // Simular tiempo de lectura
-      await _sendDataToBackend('', isError: true);
-      await _returnToWeb();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    } finally {
-      setState(() => isReading = false);
     }
   }
 
@@ -269,7 +213,7 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Lectura NFC'),
+        title: const Text('Foqqus Cashless'),
         backgroundColor: Colors.blue.shade900,
       ),
       body: Container(
@@ -286,7 +230,6 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Mostrar todos los datos recibidos
                 Card(
                   color: Colors.blue.shade50,
                   child: Padding(
@@ -307,8 +250,6 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
                         _buildDataRow('Timestamp:', timestamp ?? 'No recibido'),
                         _buildDataRow(
                             'Session ID:', sessionId ?? 'No recibido'),
-                        _buildDataRow(
-                            'Client ID:', clientId ?? 'No recibido'),
                       ],
                     ),
                   ),
@@ -329,7 +270,9 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 10),
                 ElevatedButton(
-                  onPressed: isReading ? null : _simulateError,
+                  onPressed: isReading
+                      ? null
+                      : () => _sendDataToBackend('', isError: true),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red.shade700,
                     foregroundColor: Colors.white,
