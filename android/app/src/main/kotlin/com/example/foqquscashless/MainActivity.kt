@@ -81,13 +81,17 @@ class MainActivity: FlutterActivity() {
                 val accion = uri.getQueryParameter("accion")
                 val timestamp = uri.getQueryParameter("timestamp")
                 val sessionId = uri.getQueryParameter("sessionId")
+                val clientId = uri.getQueryParameter("clientId")
+                val type = uri.getQueryParameter("type")
                 
-                Log.d("MainActivity", "Parámetros raw - accion: $accion, timestamp: $timestamp, sessionId: $sessionId")
+                Log.d("MainActivity", "Parámetros raw - accion: $accion, timestamp: $timestamp, sessionId: $sessionId, clientId: $clientId, type: $type")
                 
                 // Asignar valores procesados
                 data["accion"] = accion?.trim() ?: ""
                 data["timestamp"] = timestamp?.trim() ?: ""
                 data["sessionId"] = sessionId?.trim() ?: ""
+                data["clientId"] = clientId?.trim() ?: ""
+                data["type"] = type?.trim() ?: ""
                 
                 Log.d("MainActivity", "Data extracted: $data")
                 
