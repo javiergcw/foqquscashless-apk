@@ -1,5 +1,5 @@
 name: foqquscashless
-description: "A new Flutter project."
+description: "Foqqus Cashless — lectura NFC de manillas."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -67,6 +67,7 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/foqqus.png
+    - assets/foqqus_cashless_icon.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -98,20 +99,21 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/foqqus.png"
+  image_path: "assets/foqqus_cashless_icon.png"
   min_sdk_android: 21
-  background_color: "#FFFFFF"
+  adaptive_icon_background: "#0B7FD6"
+  adaptive_icon_foreground: "assets/foqqus_cashless_icon.png"
   web:
     generate: true
-    image_path: "assets/foqqus.png"
-    background_color: "#FFFFFF"
-    theme_color: "#007AFF"
+    image_path: "assets/foqqus_cashless_icon.png"
+    background_color: "#0B7FD6"
+    theme_color: "#0B7FD6"
   windows:
     generate: true
-    image_path: "assets/foqqus.png"
+    image_path: "assets/foqqus_cashless_icon.png"
     icon_size: 48
-    background_color: "#FFFFFF"
+    background_color: "#0B7FD6"
   macos:
     generate: true
-    image_path: "assets/foqqus.png"
-    background_color: "#FFFFFF"
+    image_path: "assets/foqqus_cashless_icon.png"
+    background_color: "#0B7FD6"

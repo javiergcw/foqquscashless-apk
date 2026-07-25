@@ -1,13 +1,13 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:firebase_core/firebase_core.dart';
 
-import 'package:foqquscashless/utils/keys.dart';
-import 'package:nfc_manager/nfc_manager.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:foqquscashless/services/nfc_service.dart';
-import 'package:flutter/services.dart';
+import 'package:foqquscashless/theme/foqqus_colors.dart';
+import 'package:foqquscashless/utils/keys.dart';
+import 'package:nfc_manager/nfc_manager.dart';
 
 const bool isProduction = true;
 
@@ -32,29 +32,25 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Foqqus Cashless',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        fontFamily: 'SF Pro Display',
-        scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: FoqqusColors.blue,
+          primary: FoqqusColors.blue,
+          secondary: FoqqusColors.teal,
+          surface: FoqqusColors.surface,
+        ),
+        scaffoldBackgroundColor: FoqqusColors.canvas,
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF007AFF),
+          backgroundColor: Colors.transparent,
           elevation: 0,
           centerTitle: true,
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
+          foregroundColor: FoqqusColors.ink,
         ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          ),
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: FoqqusColors.ink,
         ),
       ),
       home: const NFCScreen(),
@@ -69,7 +65,8 @@ class NFCScreen extends StatefulWidget {
   State<NFCScreen> createState() => _NFCScreenState();
 }
 
-class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
+class _NFCScreenState extends State<NFCScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final MethodChannel _platform =
       const MethodChannel('com.example.foqquscashless/app');
   String? sessionId;
@@ -82,19 +79,13 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
   bool _isChannelReady = false;
   final bool _useRealNFC = true;
 
-  // Lista para almacenar logs
-  final List<String> _logs = [];
-  final ScrollController _logScrollController = ScrollController();
-
-  // Variables de control de UI
-  bool _showLogs = true; // Cambiado a true para que esté visible por defecto
   bool _showDataReceived = false;
   bool _showAdvancedOptions = false;
   bool _hasWrittenToNFC = false;
-  String _logFilter = 'ALL'; // ALL, ERROR, WARNING, INFO
-  bool _logsExpanded = false; // Para expandir/contraer logs
 
-  // Constantes para los tipos de acción
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
   static const Map<String, String> ActionType = {
     'READ': 'READ',
     'CREATE': 'CREATE',
@@ -102,231 +93,9 @@ class _NFCScreenState extends State<NFCScreen> with WidgetsBindingObserver {
     'UPDATE_STATUS': 'UPDATE_STATUS',
   };
 
-  // Método para agregar logs
   void _addLog(String message) {
-    final timestamp = DateTime.now().toString().substring(11, 19);
-    final logMessage = '[$timestamp] $message';
-
-    setState(() {
-      _logs.add(logMessage);
-      if (_logs.length > 50) {
-        _logs.removeAt(0);
-      }
-    });
-
-    if (_showLogs) {
-      debugPrint(logMessage);
-    }
-
-    if (_showLogs) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_logScrollController.hasClients) {
-          _logScrollController.animateTo(
-            _logScrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    }
-  }
-
-  void _clearLogs() {
-    setState(() {
-      _logs.clear();
-    });
-    _addLog('Logs limpiados');
-  }
-
-  void _copyLogs() {
-    if (_logs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No hay logs para copiar'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final logsText = _logs.join('\n');
-    Clipboard.setData(ClipboardData(text: logsText));
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Logs copiados al portapapeles'),
-        backgroundColor: Colors.green,
-      ),
-    );
-  }
-
-  void _exportLogs() {
-    if (_logs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No hay logs para exportar'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final timestamp = DateTime.now().toString().replaceAll(':', '-').substring(0, 19);
-    final logsText = _logs.join('\n');
-    final exportData = '''
-=== FOQQUS CASHLESS LOGS ===
-Fecha: ${DateTime.now().toString()}
-Session ID: $sessionId
-Client ID: $clientId
-Acción: $accion
-Tipo: $type
-
-=== LOGS ===
-$logsText
-''';
-
-    Clipboard.setData(ClipboardData(text: exportData));
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Logs exportados al portapapeles (${_logs.length} entradas)'),
-        backgroundColor: Colors.green,
-        action: SnackBarAction(
-          label: 'Copiar',
-          textColor: Colors.white,
-          onPressed: () {
-            Clipboard.setData(ClipboardData(text: exportData));
-          },
-        ),
-      ),
-    );
-  }
-
-  List<String> _getFilteredLogs() {
-    if (_logFilter == 'ALL') return _logs;
-    
-    return _logs.where((log) {
-      switch (_logFilter) {
-        case 'ERROR':
-          return log.contains('ERROR');
-        case 'WARNING':
-          return log.contains('ADVERTENCIA');
-        case 'INFO':
-          return !log.contains('ERROR') && !log.contains('ADVERTENCIA');
-        default:
-          return true;
-      }
-    }).toList();
-  }
-
-  void _setLogFilter(String filter) {
-    setState(() {
-      _logFilter = filter;
-    });
-  }
-
-  void _toggleLogsExpanded() {
-    setState(() {
-      _logsExpanded = !_logsExpanded;
-    });
-  }
-
-  double _getResponsiveFontSize(double baseSize) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final isTablet = screenWidth > 600;
-    final isLandscape = screenWidth > screenHeight;
-    
-    if (isTablet) {
-      return baseSize * 0.8;
-    } else if (isLandscape) {
-      return baseSize * 0.9;
-    } else {
-      return baseSize;
-    }
-  }
-
-  double _getResponsiveSpacing(double baseSpacing) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth > 600;
-    
-    return isTablet ? baseSpacing * 1.2 : baseSpacing;
-  }
-
-  List<Widget> _buildLogActionButtons() {
-    final iconSize = _getResponsiveFontSize(MediaQuery.of(context).size.width * 0.035);
-    final spacing = _getResponsiveSpacing(MediaQuery.of(context).size.width * 0.01);
-
-    return [
-      // Botón expandir/contraer
-      Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF6C757D).withOpacity(0.3),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: IconButton(
-          icon: Icon(
-            _logsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
-            color: const Color(0xFFE9ECEF),
-            size: iconSize,
-          ),
-          onPressed: _toggleLogsExpanded,
-          tooltip: _logsExpanded ? 'Contraer logs' : 'Expandir logs',
-        ),
-      ),
-      
-      SizedBox(width: spacing),
-      
-      // Botón copiar
-      Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF6C757D).withOpacity(0.3),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: IconButton(
-          icon: Icon(Icons.copy, color: const Color(0xFFE9ECEF), size: iconSize),
-          onPressed: _copyLogs,
-          tooltip: 'Copiar logs',
-        ),
-      ),
-      
-      SizedBox(width: spacing),
-      
-      // Botón exportar
-      Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF6C757D).withOpacity(0.3),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: IconButton(
-          icon: Icon(Icons.download, color: const Color(0xFFE9ECEF), size: iconSize),
-          onPressed: _exportLogs,
-          tooltip: 'Exportar logs',
-        ),
-      ),
-      
-      SizedBox(width: spacing),
-      
-      // Botón limpiar
-      Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF6C757D).withOpacity(0.3),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: IconButton(
-          icon: Icon(Icons.clear, color: const Color(0xFFE9ECEF), size: iconSize),
-          onPressed: _clearLogs,
-          tooltip: 'Limpiar logs',
-        ),
-      ),
-    ];
-  }
-
-  void _toggleLogs() {
-    setState(() {
-      _showLogs = !_showLogs;
-    });
-    _addLog('Logs ${_showLogs ? 'activados' : 'desactivados'}');
+    final stamp = DateTime.now().toString().substring(11, 19);
+    debugPrint('[$stamp] $message');
   }
 
   void _toggleDataReceived() {
@@ -345,6 +114,13 @@ $logsText
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.92, end: 1.08).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     _addLog('NFCScreen inicializado');
     _initializeChannel();
   }
@@ -358,6 +134,7 @@ $logsText
 
   @override
   void dispose() {
+    _pulseController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1098,641 +875,380 @@ $logsText
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
+    final isRead = type?.toUpperCase() == 'READ' ||
+        accion?.toUpperCase() == 'READWRISTBAND';
+    final isCreate = type?.toUpperCase() == 'CREATE';
+    final accent = isCreate ? FoqqusColors.orange : FoqqusColors.blue;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(5),
-                child: Image.asset(
-                  'assets/foqqus.png',
-                  width: 24,
-                  height: 24,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'Foqqus Pay v.1.2',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                fontSize: 18,
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: const Color(0xFF007AFF),
-        elevation: 0,
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: Icon(
-                _showAdvancedOptions ? Icons.settings : Icons.more_horiz,
-                color: Colors.white,
-                size: 24,
-              ),
-              onPressed: _toggleAdvancedOptions,
-            ),
-          ),
-        ],
-      ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFF8F9FA), Color(0xFFE9ECEF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFE8F4FC),
+              FoqqusColors.canvas,
+              Color(0xFFD9F3F0),
+            ],
+            stops: [0.0, 0.55, 1.0],
           ),
         ),
-        child: Column(
-          children: [
-            // Estado principal - Interfaz limpia como datáfono
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                child: Row(
                   children: [
-                    // Icono NFC principal con diseño mejorado
-                    Container(
-                      width: 140,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(28),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF007AFF).withOpacity(0.15),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.all(32),
-                        child: Icon(
-                          Icons.nfc,
-                          size: 64,
-                          color: const Color(0xFF007AFF),
-                        ),
+                    const SizedBox(width: 48),
+                    Expanded(child: _buildBrandHeader()),
+                    IconButton(
+                      onPressed: _toggleAdvancedOptions,
+                      icon: Icon(
+                        _showAdvancedOptions
+                            ? Icons.close_rounded
+                            : Icons.more_horiz_rounded,
+                        color: FoqqusColors.inkMuted,
                       ),
                     ),
-                    
-                    const SizedBox(height: 40),
-                    
-                    // Título de estado con diseño mejorado
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        _getStatusTitle(),
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1A1A1A),
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 20),
-                    
-                    // Descripción con diseño mejorado
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.8),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        _getStatusDescription(),
-                        style: const TextStyle(
-                          fontSize: 18,
-                          color: Color(0xFF6C757D),
-                          height: 1.4,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 48),
-                    
-                    // Botones principales según el tipo de acción
-                    if (type?.toUpperCase() == 'READ' || accion?.toUpperCase() == 'READWRISTBAND') ...[
-                      // El botón se presiona automáticamente, no se muestra al usuario
-                      if (isReading) ...[
-                        _buildMainButton(
-                          'Leyendo NFC...',
-                          Icons.nfc,
-                          const Color(0xFF007AFF),
-                          null,
-                          'Leyendo...',
-                        ),
-                      ],
-                    ] else if (type?.toUpperCase() == 'CREATE') ...[
-                      _buildMainButton(
-                        'Escribir en NFC',
-                        Icons.edit,
-                        const Color(0xFFFF9500),
-                        isReading ? null : _writeToNFC,
-                        isReading ? 'Escribiendo...' : 'Escribir en NFC',
-                      ),
-                      
-                      if (_hasWrittenToNFC) ...[
-                        const SizedBox(height: 16),
-                        _buildMainButton(
-                          'Verificar Escritura',
-                          Icons.check_circle,
-                          const Color(0xFF34C759),
-                          isReading ? null : _verifyNFCWrite,
-                          isReading ? 'Verificando...' : 'Verificar Escritura',
-                        ),
-                      ],
-                    ],
-                    
-                    // Indicador de escritura exitosa con diseño mejorado
-                    if (_hasWrittenToNFC) ...[
-                      const SizedBox(height: 32),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF34C759).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: const Color(0xFF34C759).withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF34C759),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(
-                                Icons.check,
-                                color: Colors.white,
-                                size: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              'ClientId escrito: $clientId',
-                              style: const TextStyle(
-                                color: Color(0xFF34C759),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
-            ),
-          
-          // Panel de opciones avanzadas (oculto por defecto)
-          if (_showAdvancedOptions) ...[
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFF000000),
-                    blurRadius: 20,
-                    offset: Offset(0, -4),
-                    blurStyle: BlurStyle.outer,
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Handle indicador
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE9ECEF),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Column(
                     children: [
-                      const Text(
-                        'Opciones Avanzadas',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1A1A1A),
+                      const Spacer(flex: 2),
+                      ScaleTransition(
+                        scale: _pulseAnimation,
+                        child: _buildHeroOrb(accent),
+                      ),
+                      const SizedBox(height: 36),
+                      Text(
+                        _getStatusTitle(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.6,
+                          color: FoqqusColors.ink,
+                          height: 1.1,
                         ),
                       ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8F9FA),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.close, color: Color(0xFF6C757D)),
-                          onPressed: _toggleAdvancedOptions,
-                        ),
-                      ),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  
-                  // Botones de opciones avanzadas
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
-                    children: [
-                      _buildOptionButton(
-                        'Ver Datos',
-                        Icons.info_outline,
-                        _toggleDataReceived,
-                      ),
-                      _buildOptionButton(
-                        'Ocultar Logs',
-                        Icons.visibility_off,
-                        _toggleLogs,
-                      ),
-                      _buildOptionButton(
-                        'Probar Firebase',
-                        Icons.cloud_outlined,
-                        _testFirebaseConnection,
-                      ),
-                      _buildOptionButton(
-                        'Simular Error',
-                        Icons.error_outline,
-                        _simulateError,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-          
-          // Panel de datos recibidos (oculto por defecto)
-          if (_showDataReceived) ...[
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF0F8FF),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFF007AFF),
-                    blurRadius: 15,
-                    offset: Offset(0, -3),
-                    blurStyle: BlurStyle.outer,
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Handle indicador
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF007AFF).withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Datos Recibidos',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF007AFF),
+                      const SizedBox(height: 12),
+                      Text(
+                        _getStatusDescription(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          height: 1.45,
+                          color: FoqqusColors.inkMuted,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF007AFF).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 36),
+                      if (isRead && isReading)
+                        _buildMainButton(
+                          'Leyendo NFC...',
+                          Icons.nfc_rounded,
+                          FoqqusColors.blue,
+                          null,
+                          'Leyendo...',
                         ),
-                        child: IconButton(
-                          icon: const Icon(Icons.close, color: Color(0xFF007AFF)),
-                          onPressed: _toggleDataReceived,
+                      if (isCreate) ...[
+                        _buildMainButton(
+                          'Escribir en NFC',
+                          Icons.edit_rounded,
+                          FoqqusColors.orange,
+                          isReading ? null : _writeToNFC,
+                          isReading ? 'Escribiendo...' : 'Escribir en NFC',
                         ),
-                      ),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: const Color(0xFF007AFF).withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        _buildDataRow('Acción:', accion ?? 'No recibido'),
-                        _buildDataRow('Timestamp:', timestamp ?? 'No recibido'),
-                        _buildDataRow('Session ID:', sessionId ?? 'No recibido'),
-                        _buildDataRow('Client ID:', clientId ?? 'No recibido'),
-                        _buildDataRow('Tipo:', type ?? 'No recibido'),
+                        if (_hasWrittenToNFC) ...[
+                          const SizedBox(height: 12),
+                          _buildMainButton(
+                            'Verificar Escritura',
+                            Icons.verified_rounded,
+                            FoqqusColors.success,
+                            isReading ? null : _verifyNFCWrite,
+                            isReading
+                                ? 'Verificando...'
+                                : 'Verificar Escritura',
+                          ),
+                        ],
                       ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          
-
-          
-          // Panel de logs siempre visible en la parte inferior
-          if (_showLogs) ...[
-            Container(
-              height: _logsExpanded 
-                  ? MediaQuery.of(context).size.height * 0.4 
-                  : MediaQuery.of(context).size.height * 0.12,
-              constraints: BoxConstraints(
-                minHeight: _logsExpanded ? 200 : 60,
-                maxHeight: _logsExpanded ? MediaQuery.of(context).size.height * 0.6 : 100,
-              ),
-              decoration: const BoxDecoration(
-                color: Color(0xFF1A1A1A),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFF000000),
-                    blurRadius: 10,
-                    offset: Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Header de logs con controles
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: MediaQuery.of(context).size.width * 0.04,
-                      vertical: MediaQuery.of(context).size.height * 0.015,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Información de logs
-                        Expanded(
-                          flex: 2,
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: EdgeInsets.all(MediaQuery.of(context).size.width * 0.015),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF007AFF),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  Icons.list_alt,
-                                  color: Colors.white,
-                                  size: MediaQuery.of(context).size.width * 0.04,
-                                ),
-                              ),
-                              SizedBox(width: MediaQuery.of(context).size.width * 0.03),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Logs de Debug',
-                                      style: TextStyle(
-                                        fontSize: _getResponsiveFontSize(MediaQuery.of(context).size.width * 0.035),
-                                        fontWeight: FontWeight.w600,
-                                        color: const Color(0xFFE9ECEF),
-                                      ),
-                                    ),
-                                    Text(
-                                      '${_logs.length} entradas',
-                                      style: TextStyle(
-                                        fontSize: _getResponsiveFontSize(MediaQuery.of(context).size.width * 0.025),
-                                        color: const Color(0xFF6C757D),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        
-                        // Controles de logs
-                        Expanded(
-                          flex: 3,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              // Filtro rápido
-                              Container(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: MediaQuery.of(context).size.width * 0.02,
-                                  vertical: MediaQuery.of(context).size.height * 0.01,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2A2A2A),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: DropdownButton<String>(
-                                  value: _logFilter,
-                                  dropdownColor: const Color(0xFF2A2A2A),
-                                  style: TextStyle(
-                                    color: const Color(0xFFE9ECEF),
-                                    fontSize: _getResponsiveFontSize(MediaQuery.of(context).size.width * 0.03),
-                                  ),
-                                  underline: Container(),
-                                  items: const [
-                                    DropdownMenuItem(value: 'ALL', child: Text('TODOS')),
-                                    DropdownMenuItem(value: 'ERROR', child: Text('ERROR')),
-                                    DropdownMenuItem(value: 'WARNING', child: Text('WARN')),
-                                    DropdownMenuItem(value: 'INFO', child: Text('INFO')),
-                                  ],
-                                  onChanged: (value) {
-                                    if (value != null) _setLogFilter(value);
-                                  },
-                                ),
-                              ),
-                              
-                              SizedBox(width: MediaQuery.of(context).size.width * 0.02),
-                              
-                              // Botones de acción
-                              ..._buildLogActionButtons(),
-                            ],
-                          ),
-                        ),
+                      if (_hasWrittenToNFC) ...[
+                        const SizedBox(height: 20),
+                        _buildSuccessChip('ClientId escrito: $clientId'),
                       ],
-                    ),
-                  ),
-                  
-                  // Contenido de logs (solo visible cuando está expandido)
-                  if (_logsExpanded) ...[
-                    Expanded(
-                      child: Container(
-                        margin: EdgeInsets.symmetric(
-                          horizontal: MediaQuery.of(context).size.width * 0.04,
+                      const Spacer(flex: 3),
+                      Text(
+                        isReading
+                            ? 'Mantén la manilla cerca del lector'
+                            : 'Listo para recibir instrucciones',
+                        style: TextStyle(
+                          fontSize: 13,
+                          letterSpacing: 0.2,
+                          color: FoqqusColors.inkMuted.withValues(alpha: 0.85),
                         ),
-                        padding: EdgeInsets.all(MediaQuery.of(context).size.width * 0.03),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF000000),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: const Color(0xFF6C757D).withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: _getFilteredLogs().isEmpty
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline,
-                                      color: const Color(0xFF6C757D),
-                                      size: MediaQuery.of(context).size.width * 0.08,
-                                    ),
-                                    SizedBox(height: MediaQuery.of(context).size.height * 0.01),
-                                    Text(
-                                      _logs.isEmpty ? 'No hay logs aún...' : 'No hay logs con el filtro seleccionado',
-                                      style: TextStyle(
-                                        color: const Color(0xFF6C757D),
-                                        fontStyle: FontStyle.italic,
-                                        fontSize: _getResponsiveFontSize(MediaQuery.of(context).size.width * 0.03),
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : ListView.builder(
-                                controller: _logScrollController,
-                                itemCount: _getFilteredLogs().length,
-                                itemBuilder: (context, index) {
-                                  final log = _getFilteredLogs()[index];
-                                  final isError = log.contains('ERROR');
-                                  final isWarning = log.contains('ADVERTENCIA');
-
-                                  return Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      vertical: MediaQuery.of(context).size.height * 0.002,
-                                    ),
-                                    child: Text(
-                                      log,
-                                      style: TextStyle(
-                                        color: isError
-                                            ? const Color(0xFFFF6B6B)
-                                            : isWarning
-                                                ? const Color(0xFFFFB74D)
-                                                : const Color(0xFF4CAF50),
-                                        fontSize: _getResponsiveFontSize(MediaQuery.of(context).size.width * 0.025),
-                                        fontFamily: 'SF Mono',
-                                        height: 1.3,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
                       ),
-                    ),
-                  ],
-                ],
+                      const SizedBox(height: 18),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
-        ],
+              if (_showAdvancedOptions) _buildAdvancedSheet(),
+              if (_showDataReceived) _buildDataSheet(),
+            ],
+          ),
+        ),
       ),
-    ));
+    );
   }
 
-  Widget _buildMainButton(String text, IconData icon, Color color, VoidCallback? onPressed, String loadingText) {
+  Widget _buildBrandHeader() {
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Image.asset(
+            'assets/foqqus_cashless_icon.png',
+            width: 56,
+            height: 56,
+            fit: BoxFit.cover,
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'Foqqus Cashless',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+            color: FoqqusColors.ink,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeroOrb(Color accent) {
+    return Container(
+      width: 168,
+      height: 168,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            accent.withValues(alpha: 0.22),
+            accent.withValues(alpha: 0.06),
+            Colors.transparent,
+          ],
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: 124,
+          height: 124,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: FoqqusColors.surface,
+            border: Border.all(color: accent.withValues(alpha: 0.25), width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: 0.18),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Icon(
+            isReading ? Icons.contactless_rounded : Icons.nfc_rounded,
+            size: 56,
+            color: accent,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuccessChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: FoqqusColors.success.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: FoqqusColors.success.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_circle_rounded,
+              color: FoqqusColors.success, size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: FoqqusColors.success,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdvancedSheet() {
     return Container(
       width: double.infinity,
-      height: 60,
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      child: ElevatedButton(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+      decoration: const BoxDecoration(
+        color: FoqqusColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x1A0F1B2D),
+            blurRadius: 24,
+            offset: Offset(0, -6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: FoqqusColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Opciones',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: FoqqusColors.ink,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildOptionButton(
+                  'Ver Datos',
+                  Icons.info_outline_rounded,
+                  _toggleDataReceived,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildOptionButton(
+                  'Probar Firebase',
+                  Icons.cloud_outlined,
+                  _testFirebaseConnection,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildOptionButton(
+                  'Simular Error',
+                  Icons.error_outline_rounded,
+                  _simulateError,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataSheet() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+      decoration: BoxDecoration(
+        color: FoqqusColors.blue.withValues(alpha: 0.06),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Datos recibidos',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: FoqqusColors.blueDeep,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: _toggleDataReceived,
+                icon: const Icon(Icons.close_rounded, color: FoqqusColors.blue),
+              ),
+            ],
+          ),
+          _buildDataRow('Acción:', accion ?? 'No recibido'),
+          _buildDataRow('Timestamp:', timestamp ?? 'No recibido'),
+          _buildDataRow('Session ID:', sessionId ?? 'No recibido'),
+          _buildDataRow('Client ID:', clientId ?? 'No recibido'),
+          _buildDataRow('Tipo:', type ?? 'No recibido'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainButton(
+    String text,
+    IconData icon,
+    Color color,
+    VoidCallback? onPressed,
+    String loadingText,
+  ) {
+    return SizedBox(
+      width: double.infinity,
+      height: 58,
+      child: FilledButton(
         onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
+        style: FilledButton.styleFrom(
           backgroundColor: color,
           foregroundColor: Colors.white,
+          disabledBackgroundColor: color.withValues(alpha: 0.55),
+          disabledForegroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
           ),
           elevation: 0,
-          shadowColor: color.withOpacity(0.3),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, size: 24, color: Colors.white),
-            ),
-            const SizedBox(width: 16),
+            Icon(icon, size: 22),
+            const SizedBox(width: 12),
             Text(
               onPressed == null ? loadingText : text,
               style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
               ),
             ),
           ],
@@ -1742,75 +1258,57 @@ $logsText
   }
 
   Widget _buildOptionButton(String text, IconData icon, VoidCallback onPressed) {
-    return Container(
-      width: 140,
-      height: 56,
-      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: const Color(0xFF6C757D),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+    return Material(
+      color: FoqqusColors.canvas,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          child: Column(
+            children: [
+              Icon(icon, color: FoqqusColors.blue, size: 22),
+              const SizedBox(height: 8),
+              Text(
+                text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: FoqqusColors.inkMuted,
+                ),
+              ),
+            ],
           ),
-          elevation: 0,
-          shadowColor: Colors.black.withOpacity(0.1),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF007AFF).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 20, color: const Color(0xFF007AFF)),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              text,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
         ),
       ),
     );
   }
 
   Widget _buildDataRow(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FA),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 2,
+          SizedBox(
+            width: 96,
             child: Text(
               label,
               style: const TextStyle(
                 fontWeight: FontWeight.w600,
-                fontSize: 14,
-                color: Color(0xFF6C757D),
+                fontSize: 13,
+                color: FoqqusColors.inkMuted,
               ),
             ),
           ),
           Expanded(
-            flex: 3,
             child: Text(
               value,
               style: const TextStyle(
-                fontSize: 14,
-                color: Color(0xFF1A1A1A),
+                fontSize: 13,
+                color: FoqqusColors.ink,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -1821,7 +1319,8 @@ $logsText
   }
 
   String _getStatusTitle() {
-    if (type?.toUpperCase() == 'READ' || accion?.toUpperCase() == 'READWRISTBAND') {
+    if (type?.toUpperCase() == 'READ' ||
+        accion?.toUpperCase() == 'READWRISTBAND') {
       return 'Lectura NFC';
     } else if (type?.toUpperCase() == 'CREATE') {
       return 'Configuración NFC';
@@ -1830,32 +1329,9 @@ $logsText
     }
   }
 
-  Widget _buildFilterChip(String label, String filter) {
-    final isSelected = _logFilter == filter;
-    return GestureDetector(
-      onTap: () => _setLogFilter(filter),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected 
-              ? const Color(0xFF007AFF) 
-              : const Color(0xFF6C757D).withOpacity(0.3),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFFE9ECEF),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
   String _getStatusDescription() {
-    if (type?.toUpperCase() == 'READ' || accion?.toUpperCase() == 'READWRISTBAND') {
+    if (type?.toUpperCase() == 'READ' ||
+        accion?.toUpperCase() == 'READWRISTBAND') {
       if (isReading) {
         return 'Leyendo manilla NFC... Acerca el dispositivo';
       } else {
@@ -1872,5 +1348,4 @@ $logsText
     }
   }
 }
-
 
